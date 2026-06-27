@@ -84,3 +84,7 @@ make release
 
 The binary file is outputed in this directory. its statically linked so you don't need any dynamic library dependencies. Now put it in your PATH and you'll be able to use it.
 
+
+
+* TODOS
+- Get rid of =sheredom/subprocess.h= its a cool dependency but its an over kill for this project (I had to do a loop to be able to make the child processes prints normally to the STDOUT/STDERR)
