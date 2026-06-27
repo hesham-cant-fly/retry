@@ -1,10 +1,10 @@
-CC := clang
+CC := cc
 
 SRC_DIR := source
 INC_DIR := include
 BUILD_DIR := .build
 
-SRCS := $(wildcard $(SRC_DIR)/*.c)
+SRCS := $(shell find $(SRC_DIR) -name '*.c')
 OBJS := $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/%.o, $(SRCS))
 DEPS := $(OBJS:.o=.d)
 
@@ -16,10 +16,10 @@ BUILD ?= debug
 
 ifeq ($(BUILD),debug)
 CFLAGS := -Wall -Wextra -pedantic -std=c11 -O0 -g
-CFLAGS += -fsanitize=address,undefined -fno-omit-frame-pointer
+CFLAGS += -fsanitize=address,undefined -fno-omit-frame-pointer -Wno-unknown-pragmas
 LDFLAGS := -fsanitize=address,undefined
 else
-CFLAGS := -Wall -Wextra -pedantic -std=c11 -O2
+CFLAGS := -std=c11 -O2
 LDFLAGS := -static
 endif
 
@@ -37,6 +37,7 @@ $(TARGET): $(OBJS)
 	$(CC) $(LDFLAGS) -o $@ $^
 
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
+	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
 $(BUILD_DIR):
