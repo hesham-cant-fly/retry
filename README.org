@@ -1,0 +1,90 @@
+#+title: Retry
+*FUCK YOU INWI*
+
+* Introduction
+=retry= is a linux command that allows for re-executing a linux program whenever it fails (status code != 0).
+
+** Why?
+You see. my internet is shit. so when I do something that requires decent internet connection. like updating my nix flake with =nix flake update= or when I just wanna reload direnv with =direnv reload= or just cloning a git repository with even =--depth=1=. they offten fails due to my very unstable internet connection. (again. FUCK YOU INWI (my internet provider)) so I need to manually re-execute the command myself. which is just annoying and I don't wanna retype the command again and again and again. so I made =retry=!
+
+** Who can benefit from this?
+Anyone like me with a shitty internet. 
+
+* How to use
+Its pretty simple! just type =retry= and then you command
+#+begin_src bash
+retry echo "Hi!"
+#+end_src
+
+you'll quickly find that it just prints =Hi!= and exists. which means it worked. now try with a command that is guarateed to fail.
+#+begin_src bash
+# We're going to use a python script for demonistration
+retry python -c 'print("Hi!"); exit(1)' # we exit with code of 1 to indicate that the process failed
+#+end_src
+
+Now it work! it repeatedly re-execute python. also a message that indicates how many times it re-executed the python program
+#+begin_src 
+Hi!
+Existed with status 1 (!= 0). this is the 1 attempt
+Hi!
+Existed with status 1 (!= 0). this is the 2 attempt
+Hi!
+. . .
+#+end_src
+
+You may wanna just limit it to =67= retries. you can use the =--amount= option
+#+begin_src bash
+retry --amount=67 python -c 'print("Hi!"); exit(1)'
+#+end_src
+
+NOTE that options must come /before/ the command.
+
+Or you could apply 1000 millisecond delay (1 second)
+#+begin_src bash
+retry --delay=1000 python -c 'print("Hi!"); exit(1)'
+#+end_src
+
+You may want it to only retry if the status code is trictly =2=
+#+begin_src bash
+retry --is=2 <your-command>
+#+end_src
+
+Or if the status code is not =0= (this is the default)
+#+begin_src bash
+retry --not=0 <your-command>
+#+end_src
+
+multiple =--is= and =--not= is possible
+#+begin_src bash
+retry --is=0,1,2 <your-command>
+#+end_src
+
+if both of =--is= and =--not= are mixed. they apply AND logic
+#+begin_src bash
+retry --is=1,2 --is=5 --not=3,4 <your-command> # include 1 and 2 and 5. and execlude 3 and 4
+#+end_src
+
+if both of =--is= and =--not= refers to the same status. =--is= takes priority.
+#+begin_src bash
+retry --is=0 echo hi
+#+end_src
+
+* How To install
+** On nix os
+You can simply add the flake
+#+begin_src nix
+# TODO:
+#+end_src
+
+** Other Linux Distros
+Its simple. just make sure you have a suitable C compiler and run make
+#+begin_src bash
+make release
+#+end_src
+
+The binary file is outputed in this directory. its statically linked so you don't need any dynamic library dependencies. Now put it in your PATH and you'll be able to use it.
+
+
+
+* TODOS
+- Get rid of =sheredom/subprocess.h= its a cool dependency but its an over kill for this project (I had to do a loop to be able to make the child processes prints normally to the STDOUT/STDERR)
