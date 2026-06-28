@@ -73,7 +73,27 @@ retry --is=0 echo hi
 ** On nix os
 You can simply add the flake
 #+begin_src nix
-# TODO:
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+
+    # Add the flake input
+    retry.url = "github:hesham/auto-retry";
+  };
+  outputs = { self, nixpkgs, retry }@inputs: {
+    nixosConfigurations.my-machine = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        ({ pkgs, ... }: {
+          environment.systemPackages = [
+            # now use the package
+            retry.packages.${pkgs.system}.default
+          ];
+        })
+      ];
+    };
+  };
+}
 #+end_src
 
 ** Other Linux Distros

@@ -2,8 +2,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stddef.h>
-#include <time.h>
 #include <string.h>
+#if defined(_WIN32) || defined(_WIN64)
+    #include <windows.h>
+#else
+    #include <time.h>
+#endif
 
 #include "my_macro_abuse.h"
 #include "my_termcolor.h"
@@ -36,6 +40,22 @@ typedef struct config_t {
 	chars_t command;
 	const char *programs_name;
 } config_t;
+
+/**
+  * @brief Suspends the execution of the current thread for a specified number of milliseconds.
+  * @param milliseconds The duration to sleep.
+  */
+void cross_platform_sleep(unsigned int milliseconds)
+{
+#if defined(_WIN32) || defined(_WIN64)
+    Sleep(milliseconds); 
+#else
+    struct timespec ts;
+    ts.tv_sec = milliseconds / 1000;
+    ts.tv_nsec = (milliseconds % 1000) * 1000000L;
+    nanosleep(&ts, NULL);
+#endif
+}
 
 static int format_string_t(stream_t stream, modifier_stream_t mod, va_list args);
 static int format_string_view_t(stream_t stream, modifier_stream_t mod, va_list args);
@@ -93,10 +113,7 @@ static inline int actual_main(allocator_t allocator, config_t config)
 		}
 
 		if (config.delay > 0) {
-			struct timespec ts;
-			ts.tv_sec = config.delay / 1000;
-			ts.tv_nsec = (config.delay % 1000) * 1000000;
-			nanosleep(&ts, NULL);
+			cross_platform_sleep(config.delay);
 		}
 
 		struct subprocess_s subprocess;
