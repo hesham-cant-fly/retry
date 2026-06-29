@@ -15,7 +15,7 @@ TARGET := retry
 BUILD ?= debug
 
 ifeq ($(BUILD),debug)
-CFLAGS := -Wall -Wextra -pedantic -std=c11 -O0 -g
+CFLAGS := -Wall -Wextra -pedantic -std=c11 -Og -g
 CFLAGS += -fsanitize=address,undefined -fno-omit-frame-pointer -Wno-unknown-pragmas
 LDFLAGS := -fsanitize=address,undefined
 else

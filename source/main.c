@@ -4,9 +4,9 @@
 #include <stddef.h>
 #include <string.h>
 #if defined(_WIN32) || defined(_WIN64)
-    #include <windows.h>
+#  include <windows.h>
 #else
-    #include <time.h>
+#  include <time.h>
 #endif
 
 #include "my_macro_abuse.h"
@@ -20,24 +20,17 @@
 #include "my_string_builder.h"
 #include "my_string_view.h"
 
-#include "subprocess.h"
-
 typedef struct {
 	size_t len, cap;
 	size_t *items;
 } size_array_t;
-
-typedef struct chars_t {
-	size_t len, cap;
-	const char **items;
-} chars_t;
 
 typedef struct config_t {
 	size_t amount;
 	size_t delay;
 	size_array_t is_codes;
 	size_array_t not_codes;
-	chars_t command;
+	string_view_t command;
 	const char *programs_name;
 } config_t;
 
@@ -61,11 +54,11 @@ static int format_string_t(stream_t stream, modifier_stream_t mod, va_list args)
 static int format_string_view_t(stream_t stream, modifier_stream_t mod, va_list args);
 static int format_string_builder_t(stream_t stream, modifier_stream_t mod, va_list args);
 
+static int run_command(string_view_t command);
+
 static void print_usage(config_t config);
 static config_t parse_options(allocator_t allocator, int argc, char *argv[argc]);
 static inline int actual_main(allocator_t allocator, config_t config);
-
-static void print_chars_t(stream_t stream, const chars_t chars);
 
 int main(int argc, char *argv[argc])
 {
@@ -84,7 +77,7 @@ int main(int argc, char *argv[argc])
 
 	arrfree(c_allocator, config.is_codes);
 	arrfree(c_allocator, config.not_codes);
-	arrfree(c_allocator, config.command);
+	xdestroy(c_allocator, config.command.len, (void*)config.command.data);
 	return result;
 }
 
@@ -98,10 +91,10 @@ static inline int actual_main(allocator_t allocator, config_t config)
 		return 1;
 	}
 
-	const char **command = config.command.items;
+	const string_view_t command = config.command;
 
 	size_t retries = 0;
-	int return_code;
+	int return_code = 0;
 	for (; ; retries += 1) {
 		if (retries > 0) {
 			eprintln(ANSI_CODE_RED "Existed with status of {int} (!= 0). this is the attempt of {usize}" ANSI_CODE_RESET, return_code, retries);
@@ -116,40 +109,7 @@ static inline int actual_main(allocator_t allocator, config_t config)
 			cross_platform_sleep(config.delay);
 		}
 
-		struct subprocess_s subprocess;
-		const int status = subprocess_create(
-			command,
-			subprocess_option_search_user_path
-			| subprocess_option_inherit_environment
-			| subprocess_option_enable_async
-			| subprocess_option_enable_async_no_wait,
-			&subprocess);
-		if (status != 0) {
-			result = 1;
-			eprint(ANSI_CODE_RED "Can't launch command: " ANSI_CODE_RESET);
-			print_chars_t(serr, config.command);
-			goto done;
-		}
-
-		char buf[4096];
-		unsigned int n;
-		while (subprocess_alive(&subprocess)) {
-			n = subprocess_read_stdout(&subprocess, buf, sizeof(buf));
-			if (n) fwrite(buf, 1, n, stdout);
-			n = subprocess_read_stderr(&subprocess, buf, sizeof(buf));
-			if (n) fwrite(buf, 1, n, stderr);
-		}
-
-		// Drain remaining after join
-		if (subprocess_join(&subprocess, &return_code) != 0) {
-			result = 1;
-			eprint(ANSI_CODE_RED "Failed to wait for the process:" ANSI_CODE_RESET);
-			print_chars_t(serr, config.command);
-			goto done;
-		}
-
-		while ((n = subprocess_read_stdout(&subprocess, buf, sizeof(buf)))) fwrite(buf,1,n,stdout);
-		while ((n = subprocess_read_stderr(&subprocess, buf, sizeof(buf)))) fwrite(buf,1,n,stderr);
+		const int return_code = run_command(command);
 
 		if (config.is_codes.len == 0 && config.not_codes.len == 0) {
 			if (return_code == 0) break;
@@ -175,23 +135,10 @@ static inline int actual_main(allocator_t allocator, config_t config)
 		if (matched_not && !matched_is) break;
 	}
 
-	println(ANSI_CODE_RED "Finished after {usize} retries" ANSI_CODE_RESET, retries);
+	println(ANSI_CODE_GREEN "Finished after {usize} retries" ANSI_CODE_RESET, retries);
 
 done:
 	return result;
-}
-
-static void print_chars_t(stream_t stream, const chars_t chars)
-{
-	iarreach (i, chars) {
-		if (chars.items[i] == NULL) continue;
-		if (i == 0) {
-			sprint(stream, "{s}", chars.items[i]);
-		} else {
-			sprint(stream, " {s}", chars.items[i]);
-		}
-	}
-	sprintln(stream, "");
 }
 
 static void print_usage(config_t config)
@@ -286,9 +233,10 @@ static config_t parse_options(allocator_t allocator, int argc, char *argv[argc])
 		.command = {0},
 		.programs_name = argv[0],
 	};
+	string_builder_t command_builder = string_builder_new(allocator, 10);
 
 	bool inserting_commands = false;
-	for (int i = 1; i < argc; i++) {
+	for (int i = 1; i < argc; i += 1) {
 		string_view_t arg = sv_from_chars(argv[i]);
 		int matched = 0;
 
@@ -305,13 +253,20 @@ static config_t parse_options(allocator_t allocator, int argc, char *argv[argc])
 
 		if (!matched || inserting_commands) {
 			inserting_commands = true;
-			arrpush(allocator, config.command, argv[i]);
+			if (command_builder.len != 0) {
+				string_builder_push_cstr(&command_builder, " ");
+			}
+			string_builder_push_cstr(&command_builder, argv[i]);
 		}
 	}
 
-	arrpush(allocator, config.command, NULL);
-
+	config.command = string_builder_build_view(&command_builder);
 	return config;
+}
+
+static int run_command(string_view_t command)
+{
+	return system(command.data);
 }
 
 static int format_string_t(stream_t stream, modifier_stream_t mod, va_list args)

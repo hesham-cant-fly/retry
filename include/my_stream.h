@@ -1281,7 +1281,7 @@ MY_STREAM_DEF stream_t smemopen(char *buffer, size_t len)
 {
 	stream_t result;
 	mem_stream_t *data;
-	data = calloc(sizeof(mem_stream_t), 1);
+	data = calloc(1, sizeof(mem_stream_t));
 	result.data = data;
 	result.vtable = &mem_vtable_;
 	data->buffer = buffer;
