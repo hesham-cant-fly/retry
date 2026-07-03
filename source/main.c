@@ -10,6 +10,7 @@
 #endif
 
 #include "my_macro_abuse.h"
+#include "my_flags.h"
 #include "my_termcolor.h"
 #include "my_array.h"
 #include "my_allocator.h"
@@ -26,6 +27,8 @@ typedef struct {
 } size_array_t;
 
 typedef struct config_t {
+	allocator_t allocator;
+
 	size_t amount;
 	size_t delay;
 	size_array_t is_codes;
@@ -57,10 +60,14 @@ static int format_string_builder_t(stream_t stream, modifier_stream_t mod, va_li
 static int run_command(string_view_t command);
 
 static void print_usage(config_t config);
-static config_t parse_options(allocator_t allocator, int argc, char *argv[argc]);
 static inline int actual_main(allocator_t allocator, config_t config);
 
-int main(int argc, char *argv[argc])
+static void handle_is(void *dest, const char *value);
+static void handle_not(void *dest, const char *value);
+
+static config_t config = {0};
+
+int main(int argc, char *argv[])
 {
 	setup_io_stream();
 
@@ -71,7 +78,29 @@ int main(int argc, char *argv[argc])
 	const allocator_t c_allocator = get_c_allocator();
 	set_default_allocator(c_allocator);
 
-	config_t config = parse_options(c_allocator, argc, argv);
+	config.allocator = c_allocator;
+	config.amount = SIZE_MAX;
+
+	flag_stop_on_first_non_arg();
+
+	def_flag(&config.amount, FLAG_SIZE_T, "amount", NULL, "");
+	def_flag(&config.delay, FLAG_SIZE_T, "delay", NULL, "How many times the command should execute before completely failing.");
+	def_flag_call(handle_is, &config.is_codes, FLAG_INT, "is", NULL, "Only retry if exit code matches (comma-separated or repeated).");
+	def_flag_call(handle_not, &config.not_codes, FLAG_INT, "not", NULL, "Retry if exit code does NOT match (comma-separated or repeated).");
+
+	parse_flag(&argc, &argv);
+
+	config.programs_name = argv[0];
+	string_builder_t sb = sb_new(config.allocator, 60);
+	forange (i, 1, (size_t)argc) {
+		char *arg = argv[i];
+		if (i == 1) {
+			sb_push(&sb, arg);
+		} else {
+			sb_pushf(&sb, "{s} ", arg);
+		}
+	}
+	config.command = sb_build_view(&sb);
 
 	const int result = actual_main(c_allocator, config);
 
@@ -163,105 +192,34 @@ static void print_usage(config_t config)
 	eprintln("\t--not=<code>[,<code>...] Retry if exit code does NOT match (comma-separated or repeated).");
 }
 
-typedef void (*option_handler_t)(config_t *config, allocator_t allocator, string_view_t value, const char *raw);
-
-typedef struct {
-	const char *name;
-	option_handler_t handler;
-} option_entry_t;
-
-static void handle_amount(config_t *config, allocator_t allocator, string_view_t value, const char *raw)
-{
-	unused(allocator);
-	if (value.len == 0) panic("--amount= requires a value");
-	char *endptr;
-	unsigned long val = strtoul(value.data, &endptr, 10);
-	if (endptr != value.data + value.len) panic("Invalid value for --amount: %s", raw);
-	config->amount = (size_t)val;
-}
-
-static void handle_delay(config_t *config, allocator_t allocator, string_view_t value, const char *raw)
-{
-	unused(allocator);
-	if (value.len == 0) panic("--delay= requires a value");
-	char *endptr;
-	unsigned long val = strtoul(value.data, &endptr, 10);
-	if (endptr != value.data + value.len) panic("Invalid value for --delay: %s", raw);
-	config->delay = (size_t)val;
-}
-
-static void push_uint_list(allocator_t allocator, size_array_t *arr, string_view_t value, const char *raw, const char *optname)
+static void push_uint_list(allocator_t allocator, size_array_t *arr, string_view_t value, const char *optname)
 {
 	const char *p = value.data;
 	const char *end = value.data + value.len;
 	while (p < end) {
 		char *endptr;
 		unsigned long val = strtoul(p, &endptr, 10);
-		if (endptr == p) panic("Invalid value for %s: %s", optname, raw);
+		if (endptr == p) panic("Invalid value for %s: %s", optname, value.data);
 		arrpush(allocator, *arr, (size_t)val);
 		p = endptr;
 		if (p < end && *p == ',') p++;
 	}
 }
 
-static void handle_is(config_t *config, allocator_t allocator, string_view_t value, const char *raw)
+static void handle_is(void *dest, const char *val)
 {
+	(void)dest;
+	const string_view_t value = sv_from_chars(val);
 	if (value.len == 0) panic("--is= requires a value");
-	push_uint_list(allocator, &config->is_codes, value, raw, "--is");
+	push_uint_list(config.allocator, &config.is_codes, value, "--is");
 }
 
-static void handle_not(config_t *config, allocator_t allocator, string_view_t value, const char *raw)
+static void handle_not(void *dest, const char *val)
 {
+	(void)dest;
+	const string_view_t value = sv_from_chars(val);
 	if (value.len == 0) panic("--not= requires a value");
-	push_uint_list(allocator, &config->not_codes, value, raw, "--not");
-}
-
-static const option_entry_t OPTIONS[] = {
-	{ "--amount=", handle_amount },
-	{ "--delay=",  handle_delay },
-	{ "--is=",     handle_is },
-	{ "--not=",    handle_not },
-};
-
-static config_t parse_options(allocator_t allocator, int argc, char *argv[argc])
-{
-	config_t config = {
-		.amount = SIZE_MAX,
-		.delay = 0,
-		.is_codes = {0},
-		.not_codes = {0},
-		.command = {0},
-		.programs_name = argv[0],
-	};
-	string_builder_t command_builder = string_builder_new(allocator, 10);
-
-	bool inserting_commands = false;
-	for (int i = 1; i < argc; i += 1) {
-		string_view_t arg = sv_from_chars(argv[i]);
-		int matched = 0;
-
-		if (!inserting_commands) {
-			for (size_t j = 0; j < sizeof(OPTIONS) / sizeof(OPTIONS[0]); j++) {
-				if (sv_starts_with(arg, OPTIONS[j].name)) {
-					string_view_t value = sv_substr(arg, strlen(OPTIONS[j].name), arg.len);
-					OPTIONS[j].handler(&config, allocator, value, argv[i]);
-					matched = 1;
-					break;
-				}
-			}
-		}
-
-		if (!matched || inserting_commands) {
-			inserting_commands = true;
-			if (command_builder.len != 0) {
-				string_builder_push_cstr(&command_builder, " ");
-			}
-			string_builder_push_cstr(&command_builder, argv[i]);
-		}
-	}
-
-	config.command = string_builder_build_view(&command_builder);
-	return config;
+	push_uint_list(config.allocator, &config.not_codes, value, "--not");
 }
 
 static int run_command(string_view_t command)

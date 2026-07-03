@@ -1,11 +1,12 @@
-{ pkgs }:
+{ pkgs ? import <nixpkgs> {} }:
 
-pkgs.mkShell {
+pkgs.mkShell.override { stdenv = pkgs.clangStdenv; } {
   buildInputs = with pkgs; [
     glibc
     glibc.static
     clang
     gnumake
     clang-tools
+    llvm
   ];
 }
