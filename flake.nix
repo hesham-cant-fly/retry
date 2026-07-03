@@ -16,7 +16,7 @@
           version = "0.1.0";
           src = ./.;
           buildPhase = ''
-            make release
+            make
           '';
           installPhase = ''
             mkdir -p $out/bin
