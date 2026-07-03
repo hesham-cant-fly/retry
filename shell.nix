@@ -7,6 +7,5 @@ pkgs.mkShell.override { stdenv = pkgs.clangStdenv; } {
     clang
     gnumake
     clang-tools
-    llvm
   ];
 }

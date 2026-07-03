@@ -78,7 +78,7 @@ You can simply add the flake
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
     # Add the flake input
-    retry.url = "github:hesham/auto-retry";
+    retry.url = "github:hesham-cant-fly/retry";
   };
   outputs = { self, nixpkgs, retry }@inputs: {
     nixosConfigurations.my-machine = nixpkgs.lib.nixosSystem {
